@@ -58,6 +58,11 @@ OpenCV
 Unreal Engine 4.27
 AirSim
 -------------------------------------------------------------------------------------------------------
+Логи обучения распологаются на google disk https://drive.google.com/drive/folders/1W8ik6xVuMvRt8Uut-oA1sqpvjz2fNqfW?usp=drive_link
+-----------------------------------------------------------------------------------------------------------------
+Проект Unreal Engine https://drive.google.com/drive/folders/1W8ik6xVuMvRt8Uut-oA1sqpvjz2fNqfW?usp=drive_link
+-----------------------------------------------------------------------------------------------------------------
+
 Инструкция: сборка Unreal Engine 4.27 (Source Build) под AirSim, создание проекта и подключение управления из Python
 1. Цель и итоговая конфигурация
     Цель: получить стабильную связку UE 4.27 + AirSim + Python API без конфликтов компиляторов и ошибок линковки.
@@ -242,3 +247,172 @@ ________________________________________
     •	-NoEngineChanges / “would modify .modules”: собирать проект вручную через Build.bat ... -Project=...
     •	Появляется авто вместо дрона: поправить settings.json (OneDrive Documents), SimMode=Multirotor
     
+--------------------------------------------------------------------------------------------------------------------------------------------------
+Методика развертывания стенда AirSim на Unreal Engine 4.27 (Source Build) с управлением из Python
+Методика описывает развертывание программно-аппаратного стенда моделирования БПЛА на базе Microsoft AirSim и Unreal Engine 4.27, собранного из исходников, с целью обеспечения:
+    •	устойчивой сборки плагина AirSim без конфликтов компиляторов;
+    •	запуска симуляции Multirotor (дрон) в UE;
+    •	управления дроном из Python (PyCharm) через AirSim API.
+________________________________________
+А.2 Обоснование выбора конфигурации (единый toolchain)
+    При использовании Unreal Engine 4.27 из Epic Launcher и одновременной сборке AirSim (AirLib) в Visual Studio 2022 возможно возникновение конфликта промежуточного кода компилятора (IL) в линковке:
+    •	AirLib собран MSVC (VS2022) → P1;
+    •	проект/движок собирается MSVC (VS2019/v142) → P2;
+    что приводит к ошибкам C1900 и LNK1257.
+    Для устранения конфликтов применяется принцип “единого toolchain”:
+    движок UE 4.27 + плагин AirSim + проект собираются одним компилятором (MSVC v143 из VS2022).
+    Поэтому выбран UE 4.27 Source Build, собранный в VS2022.
+________________________________________
+А.3 Требования к окружению
+    А.3.1 ПО
+    •	Windows 10/11.
+    •	Git.
+    •	Visual Studio 2022.
+    •	Python 3.x + PyCharm (или любой IDE).
+    •	Репозитории:
+    o	EpicGames/UnrealEngine (ветка 4.27)
+    o	Microsoft/AirSim (актуальная ветка)
+А.3.2 Компоненты Visual Studio 2022 (обязательные)
+    В Visual Studio Installer включить:
+    •	Workload: Desktop development with C++
+    •	Components:
+    o	MSVC v143 x64/x86 build tools
+    o	Windows 10 SDK 10.0.19041.0 (рекомендуется именно этот SDK)
+    o	.NET Framework 4.6.2 Developer Pack (Targeting Pack)
+________________________________________
+А.4 Сборка Unreal Engine 4.27 из исходников (Source Build)
+    А.4.1 Клонирование исходников
+    В Developer Command Prompt for VS 2022:
+    cd /d D:\
+    mkdir UE
+    cd /d D:\UE
+    git clone -b 4.27 --single-branch https://github.com/EpicGames/UnrealEngine.git UE4.27-src
+А.4.2 Загрузка зависимостей и генерация проекта
+    cd /d D:\UE\UE4.27-src
+    Setup.bat
+    GenerateProjectFiles.bat -2022
+    Типовая проблема: MSB3644 (.NET Framework 4.6.2)
+    Ошибка вида:
+    MSB3644: не найдены ссылочные сборки для .NETFramework,Version=v4.6.2
+    Решение: установить .NET Framework 4.6.2 Developer Pack, затем повторить GenerateProjectFiles.bat -2022.
+А.4.3 Сборка UE4Editor
+    cd /d D:\UE\UE4.27-src
+    Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -WaitMutex -NoHotReload
+    Контроль: наличие файла
+    D:\UE\UE4.27-src\Engine\Binaries\Win64\UE4Editor.exe.
+________________________________________
+А.5 Устранение критичных ошибок сборки UE4.27 в VS2022
+    А.5.1 Ошибка C4756 (переполнение констант) — INFINITY/NAN
+    Пример:
+    RenderGraphPrivate.cpp(...) : error C4756: переполнение при расчете констант
+    Причина: использование INFINITY/NAN как compile-time констант в выражениях.
+    Решение: заменить на значения через std::numeric_limits:
+    #include <limits>
+    // ...
+    const float Inf = std::numeric_limits<float>::infinity();
+    const float NaN = std::numeric_limits<float>::quiet_NaN();
+    (Применяется точечно в местах, где MSVC трактует макросы как переполнение.)
+А.5.2 Проблемы Windows SDK 10.0.26100
+    При использовании WinSDK 26100 возможны ошибки в winrt/wrl.
+    Решение: принудительно использовать WinSDK 19041.
+    Создать/изменить файл:
+    Engine\Saved\UnrealBuildTool\BuildConfiguration.xml
+    <?xml version="1.0" encoding="utf-8"?>
+    <Configuration xmlns="https://www.unrealengine.com/BuildConfiguration">
+      <WindowsPlatform>
+        <WindowsSdkVersion>10.0.19041.0</WindowsSdkVersion>
+      </WindowsPlatform>
+    </Configuration>
+________________________________________
+А.6 Создание проекта UE 4.27 под AirSim
+    Рекомендуемый формат проекта: C++, так как AirSim является C++ плагином.
+    Параметры:
+    •	Games → Blank
+    •	C++
+    •	Desktop/Console
+    •	Raytracing: Off
+________________________________________
+А.7 Сборка AirSim и подключение плагина
+    А.7.1 Сборка AirSim (VS2022)
+    В Developer Command Prompt for VS 2022:
+    cd /d D:\Airsim\AirSim
+    build.cmd
+    А.7.2 Подключение плагина к проекту
+    1.	Создать папку:
+    <ProjectRoot>\Plugins\
+    2.	Скопировать:
+    D:\Airsim\AirSim\Unreal\Plugins\AirSim
+    →
+    <ProjectRoot>\Plugins\AirSim
+________________________________________
+А.8 Сборка проекта с AirSim
+    А.8.1 Рекомендованный способ (через Build.bat)
+    Сборку выполнять вручную, чтобы избежать блокировки -NoEngineChanges и сообщений вида
+    Building would modify UE4Editor.modules.
+    cd /d D:\UE\UE4.27-src
+    Engine\Build\BatchFiles\Build.bat AirSimLabEditor Win64 Development -Project="C:\...\AirSimLab.uproject" -WaitMutex -NoHotReload
+    Контроль: отсутствие ERROR: и завершение со временем выполнения (Total execution time…).
+________________________________________
+А.9 Конфигурация AirSim (settings.json)
+    А.9.1 Принцип размещения
+    AirSim читает настройки не из проекта UE, а из папки Documents\AirSim текущего пользователя Windows.
+    При переносе “Документы” в OneDrive путь обычно:
+    •	C:\Users\<User>\OneDrive\Documents\AirSim\settings.json
+    (или ...\OneDrive\Документы\AirSim\settings.json)
+    А.9.2 Настройки для Multirotor (дрон)
+    {
+      "SettingsVersion": 1.2,
+      "SimMode": "Multirotor",
+      "Vehicles": {
+        "Drone1": { "VehicleType": "SimpleFlight" }
+      }
+    }
+    Контроль: при запуске Play в UE должен появиться дрон (а не автомобиль).
+    Если появляется автомобиль — AirSim читает другой файл settings.json или SimMode не Multirotor.
+________________________________________
+А.10 Запуск симуляции и контроль через Output Log
+    1.	Запустить редактор:
+    D:\UE\UE4.27-src\Engine\Binaries\Win64\UE4Editor.exe
+    2.	Открыть проект .uproject
+    3.	Нажать Play
+    4.	Открыть лог: Window → Developer Tools → Output Log
+    5.	Фильтр по словам: AirSim, SimMode, Vehicle.
+________________________________________
+А.11 Подключение из Python (PyCharm)
+    А.11.1 Установка пакета
+    pip install airsim
+    А.11.2 Минимальный тест
+    import airsim
+    
+    client = airsim.MultirotorClient()
+    client.confirmConnection()
+    
+    client.enableApiControl(True, "Drone1")
+    client.armDisarm(True, "Drone1")
+    
+    client.takeoffAsync(vehicle_name="Drone1").join()
+    client.landAsync(vehicle_name="Drone1").join()
+    
+    client.armDisarm(False, "Drone1")
+    client.enableApiControl(False, "Drone1")
+    print("OK")
+    Правило: сначала Play в UE, затем запуск Python-скрипта.
+________________________________________
+А.12 Типовые проблемы и решения (выжимка)
+    1.	C1900/LNK1257 → конфликт компиляторов → решается UE4.27 Source Build под VS2022.
+    2.	MSB3644 → нет .NET 4.6.2 targeting pack → установить Developer Pack.
+    3.	C4756 INFINITY/NAN → заменить на std::numeric_limits.
+    4.	Ошибки WinSDK 26100 → принудить WinSDK 19041.
+    5.	“would modify UE4Editor.modules / -NoEngineChanges” → собирать проект командой Build.bat ... -Project=... (без -NoEngineChanges).
+    6.	Появляется авто вместо дрона → поправить settings.json (SimMode Multirotor) в OneDrive Documents.
+________________________________________
+Приложение Б
+    Схема программного взаимодействия стенда (пайплайн)
+    Unreal Engine 4.27 (Source Build)
+    → загрузка плагина AirSim (C++ module)
+    → чтение Documents\AirSim\settings.json (SimMode, Vehicles, sensors)
+    → запуск симуляции (Play) и инициализация vehicle (Drone1)
+    → поднятие RPC/API AirSim
+    → Python клиент (airsim.MultirotorClient)
+    → команды управления (arm, takeoff, move, land)
+    → обратные данные (state, images, IMU, barometer и т.д.)
