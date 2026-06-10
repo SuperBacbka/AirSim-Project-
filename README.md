@@ -43,7 +43,8 @@ Simulation Environment
 
 Среда моделирования построена на:
 
-Unreal Engine 4.27;
+Unreal Engine 4.27<img width="1540" height="690" alt="EpicIcon" src="https://github.com/user-attachments/assets/82d2c4e8-2cc0-4403-b698-3af53a0e740b" />
+
 Microsoft AirSim.
 -------------------------------------------------------------------------------------------------------
 Используемые технологии
